@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expectation-Maximization (EM) Interactive Visualizer</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- MathJax for crystal clear mathematical typography -->
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" id="MathJax-script" async></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .font-mono-code {
+      font-family: 'Fira Code', monospace;
+    }
+    /* Custom scrollbars for analytics & theory panels */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Top Navigation & Header -->
+  <header class="border-b border-slate-800/80 bg-slate-900/70 backdrop-blur sticky top-0 z-40 px-4 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-teal-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+        <div class="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+          <svg class="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+          EM Algorithm Interactive Laboratory
+        </h1>
+        <p class="text-xs text-slate-400 hidden sm:block">
+          Gaussian Mixture Models • Jensen's Inequality • Latent Variables & Soft Clustering
+        </p>
+      </div>
+    </div>
+
+    <!-- Live Status Pill -->
+    <div class="flex items-center space-x-2 text-xs">
+      <div id="phaseBadge" class="px-3 py-1.5 rounded-full font-medium flex items-center gap-2 border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+        <span id="phaseText">Initialized (Ready for E-step)</span>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full font-mono text-slate-300">
+        Iter: <span id="iterCounter" class="text-indigo-400 font-semibold">0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Grid Layout -->
+  <main class="flex-1 max-w-[1720px] w-full mx-auto p-3 lg:p-6 grid grid-cols-1 xl:grid-cols-12 gap-5">
+
+    <!-- LEFT & CENTER COLUMN (Canvas, Controls, Live Step Explanation) -->
+    <section class="xl:col-span-8 flex flex-col gap-4">
+
+      <!-- Interactive 2D Plot Container -->
+      <div class="relative bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <!-- Canvas Toolbar Overlay -->
+        <div class="absolute top-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between pointer-events-none gap-2">
+          <div class="flex items-center space-x-2 pointer-events-auto bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/60 shadow">
+            <span class="text-xs font-medium text-slate-400">Preset:</span>
+            <select id="presetSelect" class="bg-slate-900 text-xs text-slate-200 rounded-lg px-2 py-1 border border-slate-700 focus:outline-none focus:border-indigo-500">
+              <option value="separated">3 Separated Clusters</option>
+              <option value="overlapping">3 Overlapping Clusters</option>
+              <option value="elongated">2 Elongated Anisotropic</option>
+              <option value="four_clusters">4 Symmetric Gaussians</option>
+              <option value="random">Custom Random Seed</option>
+            </select>
+          </div>
+
+          <div class="flex items-center space-x-2 pointer-events-auto bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/60 shadow text-xs">
+            <span class="text-slate-400 hidden sm:inline">Click plot to add point</span>
+            <button id="btnClearPoints" class="text-xs text-slate-300 hover:text-rose-400 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
+              Reset Data
+            </button>
+          </div>
+        </div>
+
+        <!-- Canvas Element -->
+        <div class="relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[580px] bg-slate-950 cursor-crosshair">
+          <canvas id="emCanvas" class="w-full h-full block"></canvas>
+
+          <!-- Hover Tooltip for Point Responsibilities -->
+          <div id="pointTooltip" class="absolute hidden pointer-events-none z-30 bg-slate-900/95 border border-slate-700 p-2.5 rounded-xl text-xs shadow-2xl backdrop-blur-md text-slate-200 w-52 transform -translate-x-1/2 -translate-y-full mb-3">
+            <div class="font-semibold text-slate-300 mb-1 border-b border-slate-800 pb-1 flex justify-between">
+              <span>Data Point <span id="tooltipPtIdx">#0</span></span>
+              <span id="tooltipPtCoords" class="font-mono text-[10px] text-slate-400"></span>
+            </div>
+            <div class="space-y-1" id="tooltipResponsibilityBars">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Legend and Visual Key Bar -->
+        <div class="px-4 py-2.5 bg-slate-900 border-t border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-3">
+          <div class="flex items-center space-x-4 flex-wrap gap-y-1">
+            <div class="flex items-center space-x-1.5">
+              <span class="w-3 h-3 rounded-full border border-dashed border-slate-400 inline-block"></span>
+              <span>1σ & 2σ Covariance Ellipses</span>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <span class="w-2.5 h-0.5 bg-amber-400 inline-block"></span>
+              <span>Mean Trajectory Migration</span>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-indigo-500 via-amber-500 to-teal-400 inline-block"></span>
+              <span>Soft Responsibility Blending</span>
+            </div>
+          </div>
+          <div id="clusterPillContainer" class="flex items-center space-x-2">
+            <!-- Dynamically populated component pills -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Control Panel Deck -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col gap-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+
+          <!-- Primary Execution Buttons -->
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Step Button -->
+            <button id="btnStep" class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl font-medium text-sm transition shadow-lg shadow-indigo-600/20">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+              </svg>
+              <span id="btnStepText">Step (E-Step)</span>
+            </button>
+
+            <!-- Full Iteration Button -->
+            <button id="btnFullIter" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-medium text-sm border border-slate-700/80 transition" title="Perform both E-step and M-step in sequence">
+              Full Iteration (E + M)
+            </button>
+
+            <!-- Play / Pause Auto Loop -->
+            <button id="btnPlayPause" class="flex items-center space-x-1.5 px-3.5 py-2 bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 rounded-xl font-medium text-sm transition">
+              <svg id="playIcon" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
+              </svg>
+              <span id="playBtnLabel">Auto Run</span>
+            </button>
+
+            <!-- Reset Parameters -->
+            <button id="btnReset" class="px-3 py-2 bg-slate-800/80 hover:bg-rose-950/40 hover:text-rose-300 text-slate-400 hover:border-rose-500/40 rounded-xl text-sm border border-slate-700/70 transition" title="Re-initialize cluster parameters">
+              Reset Parameters
+            </button>
+          </div>
+
+          <!-- Component Configuration & Speed -->
+          <div class="flex flex-wrap items-center gap-4 text-xs">
+            <!-- Number of Components K -->
+            <div class="flex items-center space-x-2 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-slate-400 font-medium">Components \(K\):</span>
+              <div class="flex items-center space-x-1">
+                <button class="btnK px-2.5 py-1 rounded-lg font-bold border transition" data-k="2">2</button>
+                <button class="btnK px-2.5 py-1 rounded-lg font-bold border transition bg-indigo-600 text-white border-indigo-500" data-k="3">3</button>
+                <button class="btnK px-2.5 py-1 rounded-lg font-bold border transition" data-k="4">4</button>
+              </div>
+            </div>
+
+            <!-- Init Method -->
+            <div class="flex items-center space-x-2 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-slate-400">Init:</span>
+              <select id="initMethodSelect" class="bg-slate-900 text-slate-200 rounded px-1.5 py-0.5 border border-slate-700 focus:outline-none">
+                <option value="kmeans_pp">K-Means++ Spread</option>
+                <option value="random">Random Samples</option>
+                <option value="uniform">Uniform Center</option>
+              </select>
+            </div>
+
+            <!-- Animation Speed -->
+            <div class="flex items-center space-x-2 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-slate-400">Speed:</span>
+              <input type="range" id="speedSlider" min="150" max="1500" step="50" value="700" class="w-20 accent-indigo-500 cursor-pointer">
+            </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Contextual Action Card (What just happened & what happens next) -->
+        <div id="stepContextCard" class="bg-slate-950/80 rounded-xl p-3.5 border border-slate-800 text-xs leading-relaxed flex items-start gap-3">
+          <div class="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 mt-0.5 font-bold font-mono">
+            E
+          </div>
+          <div class="space-y-1">
+            <div class="font-semibold text-slate-200 flex items-center gap-2">
+              <span id="stepTitle">Ready for E-step (Expectation / Responsibilities)</span>
+              <span class="text-[10px] bg-slate-800 px-1.5 py-0.2 rounded text-slate-400">Phase 1/2</span>
+            </div>
+            <p id="stepDescription" class="text-slate-400">
+              Press <strong>Step</strong> to evaluate Bayes' theorem for every data point: calculating the posterior distribution <span class="font-mono text-indigo-300">γ_ik = P(z_i = k | x_i, θ)</span> across all components.
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN (Convergence Metrics, Log-Likelihood Chart, Deep Theory) -->
+    <section class="xl:col-span-4 flex flex-col gap-4">
+
+      <!-- Real-Time Convergence Analytics Card -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+          <h2 class="font-semibold text-sm text-slate-200 flex items-center gap-2">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+            </svg>
+            Monotonic Log-Likelihood Convergence
+          </h2>
+          <span class="text-[11px] font-mono text-emerald-400/90 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+            Guaranteed Non-Decreasing
+          </span>
+        </div>
+
+        <!-- Metrics Counters -->
+        <div class="grid grid-cols-3 gap-2 mb-3 text-center">
+          <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider">Log-Likelihood</div>
+            <div id="metricLL" class="font-mono text-sm font-bold text-slate-200 mt-0.5">-0.00</div>
+          </div>
+          <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider">\(\Delta\) LL</div>
+            <div id="metricDeltaLL" class="font-mono text-sm font-bold text-teal-400 mt-0.5">+0.00</div>
+          </div>
+          <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider">Status</div>
+            <div id="metricConvergence" class="font-mono text-xs font-semibold text-indigo-400 mt-1">Iterating</div>
+          </div>
+        </div>
+
+        <!-- Canvas for Log-Likelihood Graph -->
+        <div class="relative w-full h-36 bg-slate-950 rounded-xl border border-slate-800/80 overflow-hidden">
+          <canvas id="llCanvas" class="w-full h-full block"></canvas>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-2 italic">
+          Notice how \(\ln p(X|\theta)\) climbs monotonically at every cycle, asymptotically leveling off as \(\|\theta^{(t+1)} - \theta^{(t)}\| \to 0\).
+        </p>
+      </div>
+
+      <!-- Deep Theory Pedagogical Guide -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl flex-1 flex flex-col overflow-hidden">
+        <h2 class="font-semibold text-sm text-slate-200 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+          Mathematical Intuition & Mechanics
+        </h2>
+
+        <!-- Interactive Tab Navigation -->
+        <div class="flex border-b border-slate-800 mb-3 text-xs gap-1 font-medium">
+          <button class="theory-tab-btn px-2.5 py-1.5 rounded-t-lg border-b-2 border-indigo-500 text-indigo-300 bg-slate-800/50" data-target="theory-why-mle">1. Why MLE Fails</button>
+          <button class="theory-tab-btn px-2.5 py-1.5 rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200" data-target="theory-e-step">2. The E-Step</button>
+          <button class="theory-tab-btn px-2.5 py-1.5 rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200" data-target="theory-m-step">3. The M-Step</button>
+          <button class="theory-tab-btn px-2.5 py-1.5 rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200" data-target="theory-jensen">4. Jensen & ELBO</button>
+        </div>
+
+        <!-- Theory Tab Contents (Scrollable Container) -->
+        <div class="overflow-y-auto max-h-[380px] pr-2 text-xs text-slate-300 space-y-3 leading-relaxed">
+
+          <!-- Section 1: Why MLE Fails -->
+          <div id="theory-why-mle" class="theory-tab-content space-y-2">
+            <h3 class="font-bold text-indigo-300 text-sm">The Latent Variable Dilemma</h3>
+            <p>
+              In supervised learning, each point has an explicit category tag \(z_i\). But in unsupervised mixture models, \(z_i \in \{1,\dots,K\}\) is a <em>latent (unobserved) variable</em> indicating which Gaussian produced observation \(x_i\).
+            </p>
+            <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-amber-200 overflow-x-auto">
+              $$\ln p(X|\theta) = \sum_{i=1}^N \ln \left( \sum_{k=1}^K \pi_k \mathcal{N}(x_i|\mu_k, \Sigma_k) \right)$$
+            </div>
+            <p>
+              Notice the <strong>summation inside the logarithm</strong>. Because \(\ln(a + b) \neq \ln a + \ln b\), derivatives with respect to parameters couple all components together into non-linear equations with no closed-form solution.
+            </p>
+          </div>
+
+          <!-- Section 2: E-Step -->
+          <div id="theory-e-step" class="theory-tab-content hidden space-y-2">
+            <h3 class="font-bold text-indigo-300 text-sm">E-Step: Responsibilities & Lower Bound</h3>
+            <p>
+              Instead of making hard 0-or-1 cluster assignments (like K-Means), the E-step calculates <strong>soft responsibilities</strong> \(\gamma_{ik}\) via Bayes' Rule:
+            </p>
+            <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-teal-300 overflow-x-auto">
+              $$\gamma_{ik} = P(z_i = k | x_i, \theta^{(t)}) = \frac{\pi_k \mathcal{N}(x_i | \mu_k, \Sigma_k)}{\sum_{j=1}^K \pi_j \mathcal{N}(x_i | \mu_j, \Sigma_j)}$$
+            </div>
+            <p>
+              Geometrically, \(\gamma_{ik}\) represents component \(k\)'s probabilistic "ownership share" of point \(x_i\). In our visualizer, point color is blended proportionally to \(\vec{\gamma}_i\).
+            </p>
+          </div>
+
+          <!-- Section 3: M-Step -->
+          <div id="theory-m-step" class="theory-tab-content hidden space-y-2">
+            <h3 class="font-bold text-indigo-300 text-sm">M-Step: Weighted Analytical Updates</h3>
+            <p>
+              With responsibilities \(\gamma_{ik}\) fixed, the complex coupled sum unlocks into an easy <strong>weighted Maximum Likelihood</strong> problem:
+            </p>
+            <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-purple-300 overflow-x-auto space-y-1">
+              <div>$$N_k = \sum_{i=1}^N \gamma_{ik}, \quad \pi_k = \frac{N_k}{N}$$</div>
+              <div>$$\mu_k = \frac{1}{N_k}\sum_{i=1}^N \gamma_{ik} x_i$$</div>
+              <div>$$\Sigma_k = \frac{1}{N_k}\sum_{i=1}^N \gamma_{ik} (x_i - \mu_k)(x_i - \mu_k)^T$$</div>
+            </div>
+            <p>
+              Every Gaussian updates its center to the center of mass of the data weighted by its responsibility, and expands/rotates its covariance ellipse to match the dispersion.
+            </p>
+          </div>
+
+          <!-- Section 4: Jensen's Inequality & Guarantee -->
+          <div id="theory-jensen" class="theory-tab-content hidden space-y-2">
+            <h3 class="font-bold text-indigo-300 text-sm">Monotonic Convergence Guarantee</h3>
+            <p>
+              By Jensen's Inequality for concave functions (\(\ln\)), we construct the Evidence Lower Bound (ELBO) \(\mathcal{L}(q, \theta)\):
+            </p>
+            <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-300 overflow-x-auto">
+              $$\ln p(X|\theta) = \mathcal{L}(q, \theta) + \text{KL}(q(Z) \,\|\, p(Z|X, \theta)) \ge \mathcal{L}(q, \theta)$$
+            </div>
+            <ul class="list-disc list-inside space-y-1 text-slate-400">
+              <li><strong>E-step:</strong> Sets \(q(Z) = p(Z|X, \theta)\), making \(\text{KL}=0\) so the lower bound touches \(\ln p(X|\theta)\).</li>
+              <li><strong>M-step:</strong> Maximizes \(\mathcal{L}(q, \theta)\) with respect to \(\theta\).</li>
+            </ul>
+            <p>
+              Hence, \(\ln p(X|\theta^{(t+1)}) \ge \ln p(X|\theta^{(t)})\) is mathematically guaranteed to never decrease.
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <script>
+    /**
+     * Complete EM Algorithm Engine for 2D Gaussian Mixture Models (GMM)
+     * All linear algebra, statistical formulas, and graphics run natively.
+     */
+
+    // --- Vibrant Color Palette for Components ---
+    const PALETTE = [
+      { name: 'Indigo', hex: '#6366f1', rgb: [99, 102, 241] },   // Cluster 0
+      { name: 'Amber',  hex: '#f59e0b', rgb: [245, 158, 11] },   // Cluster 1
+      { name: 'Teal',   hex: '#14b8a6', rgb: [20, 184, 166] },   // Cluster 2
+      { name: 'Rose',   hex: '#f43f5e', rgb: [244, 63, 94] }     // Cluster 3
+    ];
+
+    // --- 2D Linear Algebra & Gaussian Utilities ---
+    class GaussianMath {
+      /** Evaluate bivariate Gaussian PDF N(x | mu, Sigma) with regularization */
+      static pdf(x, mu, sigma) {
+        const dx = x[0] - mu[0];
+        const dy = x[1] - mu[1];
+        
+        // Add tiny ridge epsilon to prevent singularity
+        const s00 = sigma[0][0] + 1e-4;
+        const s01 = sigma[0][1];
+        const s10 = sigma[1][0];
+        const s11 = sigma[1][1] + 1e-4;
+
+        const det = s00 * s11 - s01 * s10;
+        if (det <= 1e-7) return 1e-8;
+
+        const inv00 = s11 / det;
+        const inv01 = -s01 / det;
+        const inv10 = -s10 / det;
+        const inv11 = s00 / det;
+
+        const mahal = dx * (inv00 * dx + inv10 * dy) + dy * (inv01 * dx + inv11 * dy);
+        const normFactor = 2 * Math.PI * Math.sqrt(det);
+        
+        return Math.max(1e-12, Math.exp(-0.5 * mahal) / normFactor);
+      }
+
+      /** Compute Eigenvalues and Eigenvectors of 2x2 symmetric covariance matrix */
+      static eigen2x2(sigma) {
+        const a = sigma[0][0];
+        const b = sigma[0][1];
+        const d = sigma[1][1];
+
+        const trace = a + d;
+        const disc = Math.sqrt(Math.max(0, (a - d) * (a - d) + 4 * b * b));
+
+        const lambda1 = (trace + disc) / 2;
+        const lambda2 = (trace - disc) / 2;
+
+        let angle = 0;
+        if (Math.abs(b) > 1e-7) {
+          angle = Math.atan2(lambda1 - a, b);
+        } else if (a < d) {
+          angle = Math.PI / 2;
+        }
+
+        return {
+          l1: Math.max(1e-4, lambda1),
+          l2: Math.max(1e-4, lambda2),
+          angle: angle
+        };
+      }
+    }
+
+    class GMMVisualizer {
+      constructor() {
+        // App State
+        this.K = 3;
+        this.data = []; // Array of [x, y] in normalized space [0, 1]
+        this.clusters = []; // { pi: float, mu: [x,y], sigma: [[..],[..]], trail: [] }
+        this.gamma = []; // NxK responsibility matrix
+
+        this.currentPhase = 'E'; // 'E' or 'M'
+        this.iteration = 0;
+        this.logLikelihoodHistory = [];
+        this.currentLL = 0;
+        this.isPlaying = false;
+        this.timer = null;
+        this.speed = 700;
+
+        // Interaction state
+        this.hoveredPointIdx = -1;
+
+        // Setup DOM Canvas and events
+        this.setupCanvases();
+        this.setupDOMBindings();
+        this.loadPreset('separated');
+      }
+
+      setupCanvases() {
+        this.emCanvas = document.getElementById('emCanvas');
+        this.emCtx = this.emCanvas.getContext('2d');
+
+        this.llCanvas = document.getElementById('llCanvas');
+        this.llCtx = this.llCanvas.getContext('2d');
+
+        this.resizeCanvases();
+        window.addEventListener('resize', () => {
+          this.resizeCanvases();
+          this.render();
+        });
+      }
+
+      resizeCanvases() {
+        const rect = this.emCanvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        this.emCanvas.width = rect.width * dpr;
+        this.emCanvas.height = rect.height * dpr;
+        this.emCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.plotWidth = rect.width;
+        this.plotHeight = rect.height;
+
+        const llRect = this.llCanvas.parentElement.getBoundingClientRect();
+        this.llCanvas.width = llRect.width * dpr;
+        this.llCanvas.height = llRect.height * dpr;
+        this.llCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.llWidth = llRect.width;
+        this.llHeight = llRect.height;
+      }
+
+      generateDataset(preset) {
+        this.data = [];
+        const rngNormal = (m, s) => {
+          let u = 0, v = 0;
+          while (u === 0) u = Math.random();
+          while (v === 0) v = Math.random();
+          return m + s * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        };
+
+        if (preset === 'separated') {
+          // 3 Distinct Compact Clusters
+          const centers = [[0.22, 0.3], [0.75, 0.35], [0.48, 0.78]];
+          centers.forEach(c => {
+            for (let i = 0; i < 70; i++) {
+              this.data.push([
+                Math.max(0.05, Math.min(0.95, rngNormal(c[0], 0.055))),
+                Math.max(0.05, Math.min(0.95, rngNormal(c[1], 0.055)))
+              ]);
+            }
+          });
+        } else if (preset === 'overlapping') {
+          // 3 Clusters with noticeable intersection
+          const centers = [[0.35, 0.45], [0.6, 0.4], [0.48, 0.65]];
+          centers.forEach(c => {
+            for (let i = 0; i < 75; i++) {
+              this.data.push([
+                Math.max(0.05, Math.min(0.95, rngNormal(c[0], 0.11))),
+                Math.max(0.05, Math.min(0.95, rngNormal(c[1], 0.11)))
+              ]);
+            }
+          });
+        } else if (preset === 'elongated') {
+          // 2 Diagonal Anisotropic Clusters
+          for (let i = 0; i < 110; i++) {
+            const u = rngNormal(0, 0.14);
+            const v = rngNormal(0, 0.035);
+            // Rotate 35 deg
+            this.data.push([
+              Math.max(0.05, Math.min(0.95, 0.35 + u * Math.cos(0.6) - v * Math.sin(0.6))),
+              Math.max(0.05, Math.min(0.95, 0.4 + u * Math.sin(0.6) + v * Math.cos(0.6)))
+            ]);
+          }
+          for (let i = 0; i < 110; i++) {
+            const u = rngNormal(0, 0.15);
+            const v = rngNormal(0, 0.035);
+            // Rotate -30 deg
+            this.data.push([
+              Math.max(0.05, Math.min(0.95, 0.7 + u * Math.cos(-0.5) - v * Math.sin(-0.5))),
+              Math.max(0.05, Math.min(0.95, 0.65 + u * Math.sin(-0.5) + v * Math.cos(-0.5)))
+            ]);
+          }
+        } else if (preset === 'four_clusters') {
+          const centers = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+          centers.forEach(c => {
+            for (let i = 0; i < 55; i++) {
+              this.data.push([
+                Math.max(0.05, Math.min(0.95, rngNormal(c[0], 0.06))),
+                Math.max(0.05, Math.min(0.95, rngNormal(c[1], 0.06)))
+              ]);
+            }
+          });
+        } else {
+          // Random scatter with 3 arbitrary seeds
+          for (let i = 0; i < 180; i++) {
+            this.data.push([0.15 + Math.random() * 0.7, 0.15 + Math.random() * 0.7]);
+          }
+        }
+      }
+
+      initParameters(method = 'kmeans_pp') {
+        const N = this.data.length;
+        if (N === 0) return;
+
+        this.clusters = [];
+        this.gamma = Array.from({ length: N }, () => Array(this.K).fill(1 / this.K));
+
+        let selectedMeans = [];
+
+        if (method === 'kmeans_pp' && N >= this.K) {
+          // K-means++ initialization for well-spaced cluster seeds
+          selectedMeans.push([...this.data[Math.floor(Math.random() * N)]]);
+          while (selectedMeans.length < this.K) {
+            let dists = this.data.map(pt => {
+              let minDist = Infinity;
+              selectedMeans.forEach(m => {
+                const d = (pt[0] - m[0]) ** 2 + (pt[1] - m[1]) ** 2;
+                if (d < minDist) minDist = d;
+              });
+              return minDist;
+            });
+            const sumDist = dists.reduce((a, b) => a + b, 0);
+            let r = Math.random() * sumDist;
+            let chosenIdx = 0;
+            for (let i = 0; i < dists.length; i++) {
+              r -= dists[i];
+              if (r <= 0) {
+                chosenIdx = i;
+                break;
+              }
+            }
+            selectedMeans.push([...this.data[chosenIdx]]);
+          }
+        } else if (method === 'random' && N >= this.K) {
+          for (let k = 0; k < this.K; k++) {
+            selectedMeans.push([...this.data[Math.floor(Math.random() * N)]]);
+          }
+        } else {
+          // Uniform radial layout in center
+          for (let k = 0; k < this.K; k++) {
+            const ang = (k / this.K) * 2 * Math.PI;
+            selectedMeans.push([0.5 + 0.22 * Math.cos(ang), 0.5 + 0.22 * Math.sin(ang)]);
+          }
+        }
+
+        // Initialize K clusters
+        for (let k = 0; k < this.K; k++) {
+          this.clusters.push({
+            pi: 1.0 / this.K,
+            mu: selectedMeans[k],
+            sigma: [
+              [0.015, 0.0],
+              [0.0, 0.015]
+            ],
+            trail: [[...selectedMeans[k]]]
+          });
+        }
+
+        this.iteration = 0;
+        this.currentPhase = 'E'; // Always start ready for E-Step
+        this.logLikelihoodHistory = [];
+        this.computeLogLikelihood();
+        this.logLikelihoodHistory.push({
+          iter: 0,
+          phase: 'Init',
+          ll: this.currentLL
+        });
+
+        this.updateUIPhaseCard("Initialized Parameters", "Ready to perform the first E-Step: evaluating responsibilities.", 'E');
+        this.updateClusterPills();
+        this.render();
+      }
+
+      stepE() {
+        const N = this.data.length;
+        if (N === 0) return;
+
+        // Compute Gamma: gamma_ik = pi_k * N(x_i | mu_k, Sigma_k) / sum_j(...)
+        for (let i = 0; i < N; i++) {
+          const pt = this.data[i];
+          let responsibilities = [];
+          let sumWeightedProb = 0;
+
+          for (let k = 0; k < this.K; k++) {
+            const prob = GaussianMath.pdf(pt, this.clusters[k].mu, this.clusters[k].sigma);
+            const weighted = this.clusters[k].pi * prob;
+            responsibilities.push(weighted);
+            sumWeightedProb += weighted;
+          }
+
+          if (sumWeightedProb < 1e-12) {
+            // Equal distribution if extremely isolated
+            for (let k = 0; k < this.K; k++) this.gamma[i][k] = 1.0 / this.K;
+          } else {
+            for (let k = 0; k < this.K; k++) {
+              this.gamma[i][k] = responsibilities[k] / sumWeightedProb;
+            }
+          }
+        }
+
+        this.computeLogLikelihood();
+        this.logLikelihoodHistory.push({
+          iter: this.iteration,
+          phase: 'E',
+          ll: this.currentLL
+        });
+
+        this.currentPhase = 'M';
+        this.updateUIPhaseCard(
+          "E-Step Finished: Soft Responsibilities Re-estimated",
+          "Calculated posterior ownership P(z_i = k | x_i). Notice points now glow with blended colors reflecting cluster membership. Next: M-step will update Gaussian shapes and means.",
+          'M'
+        );
+      }
+
+      stepM() {
+        const N = this.data.length;
+        if (N === 0) return;
+
+        for (let k = 0; k < this.K; k++) {
+          // 1. Effective cluster size: N_k = sum_i gamma_ik
+          let Nk = 0;
+          for (let i = 0; i < N; i++) {
+            Nk += this.gamma[i][k];
+          }
+          Nk = Math.max(1e-4, Nk);
+
+          // 2. Mixing coefficient: pi_k = Nk / N
+          this.clusters[k].pi = Nk / N;
+
+          // 3. New mean vector: mu_k = sum_i (gamma_ik * x_i) / Nk
+          let newMuX = 0;
+          let newMuY = 0;
+          for (let i = 0; i < N; i++) {
+            newMuX += this.gamma[i][k] * this.data[i][0];
+            newMuY += this.gamma[i][k] * this.data[i][1];
+          }
+          newMuX /= Nk;
+          newMuY /= Nk;
+          
+          this.clusters[k].mu = [newMuX, newMuY];
+          this.clusters[k].trail.push([newMuX, newMuY]);
+
+          // 4. Covariance Matrix Sigma_k = sum_i gamma_ik (x_i - mu_k)(x_i - mu_k)^T / Nk
+          let s00 = 0, s01 = 0, s11 = 0;
+          for (let i = 0; i < N; i++) {
+            const dx = this.data[i][0] - newMuX;
+            const dy = this.data[i][1] - newMuY;
+            const w = this.gamma[i][k];
+            s00 += w * dx * dx;
+            s01 += w * dx * dy;
+            s11 += w * dy * dy;
+          }
+
+          // Regularize covariance diagonal to prevent collapse onto single points
+          const reg = 1e-4;
+          this.clusters[k].sigma = [
+            [(s00 / Nk) + reg, (s01 / Nk)],
+            [(s01 / Nk), (s11 / Nk) + reg]
+          ];
+        }
+
+        this.iteration++;
+        this.computeLogLikelihood();
+        this.logLikelihoodHistory.push({
+          iter: this.iteration,
+          phase: 'M',
+          ll: this.currentLL
+        });
+
+        this.currentPhase = 'E';
+        this.updateUIPhaseCard(
+          `Iteration ${this.iteration} M-Step Finished: Parameters Maximized`,
+          "Gaussian means moved to weighted centers of mass; ellipses expanded and rotated to match dispersion \(\Sigma_k\).",
+          'E'
+        );
+      }
+
+      computeLogLikelihood() {
+        const N = this.data.length;
+        if (N === 0) return 0;
+        let totalLL = 0;
+
+        for (let i = 0; i < N; i++) {
+          const pt = this.data[i];
+          let ptProb = 0;
+          for (let k = 0; k < this.K; k++) {
+            ptProb += this.clusters[k].pi * GaussianMath.pdf(pt, this.clusters[k].mu, this.clusters[k].sigma);
+          }
+          totalLL += Math.log(Math.max(1e-12, ptProb));
+        }
+
+        this.prevLL = this.currentLL || totalLL;
+        this.currentLL = totalLL;
+        return totalLL;
+      }
+
+      step() {
+        if (this.currentPhase === 'E') {
+          this.stepE();
+        } else {
+          this.stepM();
+        }
+        this.render();
+      }
+
+      fullIteration() {
+        if (this.currentPhase === 'E') {
+          this.stepE();
+          this.stepM();
+        } else {
+          this.stepM();
+          this.stepE();
+        }
+        this.render();
+      }
+
+      render() {
+        this.renderMainPlot();
+        this.renderLLChart();
+        this.updateMetricsUI();
+      }
+
+      renderMainPlot() {
+        const ctx = this.emCtx;
+        const w = this.plotWidth;
+        const h = this.plotHeight;
+
+        // Background
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(0, 0, w, h);
+
+        // Subtle background grid
+        ctx.strokeStyle = '#1e293b33';
+        ctx.lineWidth = 1;
+        const gridStep = 40;
+        for (let x = 0; x < w; x += gridStep) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+        }
+        for (let y = 0; y < h; y += gridStep) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+
+        // Render Migration Trails
+        this.clusters.forEach((cl, k) => {
+          if (cl.trail.length > 1) {
+            ctx.beginPath();
+            ctx.strokeStyle = PALETTE[k % PALETTE.length].hex;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.globalAlpha = 0.6;
+            ctx.moveTo(cl.trail[0][0] * w, cl.trail[0][1] * h);
+            for (let t = 1; t < cl.trail.length; t++) {
+              ctx.lineTo(cl.trail[t][0] * w, cl.trail[t][1] * h);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1.0;
+          }
+        });
+
+        // Render Covariance Ellipses (1-sigma and 2-sigma)
+        this.clusters.forEach((cl, k) => {
+          const color = PALETTE[k % PALETTE.length];
+          const eig = GaussianMath.eigen2x2(cl.sigma);
+          const cx = cl.mu[0] * w;
+          const cy = cl.mu[1] * h;
+
+          // Scale factor to map normalized unit coords to screen canvas dimensions
+          const rx1 = Math.sqrt(eig.l1) * w;
+          const ry1 = Math.sqrt(eig.l2) * h;
+
+          // 2-Sigma Ellipse (95.4% confidence region)
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(eig.angle);
+          
+          ctx.beginPath();
+          ctx.ellipse(0, 0, rx1 * 2, ry1 * 2, 0, 0, 2 * Math.PI);
+          ctx.strokeStyle = color.hex;
+          ctx.lineWidth = 1;
+          ctx.globalAlpha = 0.25;
+          ctx.stroke();
+          ctx.fillStyle = color.hex;
+          ctx.globalAlpha = 0.05;
+          ctx.fill();
+
+          // 1-Sigma Ellipse (68.3% confidence region)
+          ctx.beginPath();
+          ctx.ellipse(0, 0, rx1, ry1, 0, 0, 2 * Math.PI);
+          ctx.strokeStyle = color.hex;
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.85;
+          ctx.stroke();
+          ctx.globalAlpha = 0.12;
+          ctx.fill();
+          ctx.restore();
+
+          // Cluster Mean Center Crosshair (+)
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(-7, 0); ctx.lineTo(7, 0);
+          ctx.moveTo(0, -7); ctx.lineTo(0, 7);
+          ctx.stroke();
+          // Mean marker circle
+          ctx.fillStyle = color.hex;
+          ctx.beginPath();
+          ctx.arc(0, 0, 4, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.restore();
+        });
+
+        // Render Data Points (Blended Responsibilities)
+        const N = this.data.length;
+        for (let i = 0; i < N; i++) {
+          const pt = this.data[i];
+          const px = pt[0] * w;
+          const py = pt[1] * h;
+
+          // Blend RGB according to gamma_ik
+          let r = 0, g = 0, b = 0;
+          for (let k = 0; k < this.K; k++) {
+            const weight = this.gamma[i] ? this.gamma[i][k] : (1 / this.K);
+            const col = PALETTE[k % PALETTE.length].rgb;
+            r += weight * col[0];
+            g += weight * col[1];
+            b += weight * col[2];
+          }
+          r = Math.round(r); g = Math.round(g); b = Math.round(b);
+
+          const isHovered = (this.hoveredPointIdx === i);
+
+          ctx.beginPath();
+          ctx.arc(px, py, isHovered ? 6.5 : 3.5, 0, 2 * Math.PI);
+          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+          ctx.fill();
+
+          ctx.strokeStyle = isHovered ? '#ffffff' : `rgba(${r}, ${g}, ${b}, 0.5)`;
+          ctx.lineWidth = isHovered ? 2 : 0.75;
+          ctx.stroke();
+        }
+      }
+
+      renderLLChart() {
+        const ctx = this.llCtx;
+        const w = this.llWidth;
+        const h = this.llHeight;
+
+        ctx.fillStyle = '#050811';
+        ctx.fillRect(0, 0, w, h);
+
+        const hist = this.logLikelihoodHistory;
+        if (hist.length < 2) {
+          ctx.fillStyle = '#475569';
+          ctx.font = '11px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('Awaiting initial step execution...', w / 2, h / 2);
+          return;
+        }
+
+        const padding = { top: 16, bottom: 22, left: 45, right: 20 };
+        const chartW = w - padding.left - padding.right;
+        const chartH = h - padding.top - padding.bottom;
+
+        // Min & Max LL for dynamic scaling
+        let minLL = Infinity;
+        let maxLL = -Infinity;
+        hist.forEach(d => {
+          if (d.ll < minLL) minLL = d.ll;
+          if (d.ll > maxLL) maxLL = d.ll;
+        });
+
+        // Add padding range if flat
+        if (maxLL - minLL < 1e-4) {
+          minLL -= 10;
+          maxLL += 10;
+        } else {
+          const span = maxLL - minLL;
+          minLL -= span * 0.08;
+          maxLL += span * 0.08;
+        }
+
+        const getX = (idx) => padding.left + (idx / (hist.length - 1)) * chartW;
+        const getY = (val) => padding.top + chartH - ((val - minLL) / (maxLL - minLL)) * chartH;
+
+        // Axis Gridlines
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, padding.top);
+        ctx.lineTo(padding.left, padding.top + chartH);
+        ctx.lineTo(w - padding.right, padding.top + chartH);
+        ctx.stroke();
+
+        // LL Value labels on Left
+        ctx.fillStyle = '#64748b';
+        ctx.font = '9px Fira Code, monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(maxLL.toFixed(1), padding.left - 6, padding.top + 8);
+        ctx.fillText(minLL.toFixed(1), padding.left - 6, padding.top + chartH);
+
+        // Fill under curve
+        ctx.beginPath();
+        ctx.moveTo(getX(0), padding.top + chartH);
+        for (let i = 0; i < hist.length; i++) {
+          ctx.lineTo(getX(i), getY(hist[i].ll));
+        }
+        ctx.lineTo(getX(hist.length - 1), padding.top + chartH);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartH);
+        grad.addColorStop(0, 'rgba(20, 184, 166, 0.35)');
+        grad.addColorStop(1, 'rgba(20, 184, 166, 0.0)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Stroke line
+        ctx.beginPath();
+        for (let i = 0; i < hist.length; i++) {
+          const x = getX(i);
+          const y = getY(hist[i].ll);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = '#14b8a6';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Points
+        for (let i = 0; i < hist.length; i++) {
+          const x = getX(i);
+          const y = getY(hist[i].ll);
+          ctx.beginPath();
+          ctx.arc(x, y, 3, 0, 2 * Math.PI);
+          ctx.fillStyle = hist[i].phase === 'E' ? '#6366f1' : '#14b8a6';
+          ctx.fill();
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+
+      updateMetricsUI() {
+        document.getElementById('iterCounter').innerText = this.iteration;
+        document.getElementById('metricLL').innerText = this.currentLL.toFixed(2);
+
+        const delta = this.currentLL - (this.prevLL || this.currentLL);
+        const deltaElem = document.getElementById('metricDeltaLL');
+        deltaElem.innerText = (delta >= 0 ? '+' : '') + delta.toFixed(3);
+        deltaElem.className = `font-mono text-sm font-bold mt-0.5 ${delta >= -1e-4 ? 'text-teal-400' : 'text-rose-400'}`;
+
+        const convElem = document.getElementById('metricConvergence');
+        if (Math.abs(delta) < 0.005 && this.iteration > 1) {
+          convElem.innerText = "Converged";
+          convElem.className = "font-mono text-xs font-semibold text-emerald-400 mt-1";
+        } else {
+          convElem.innerText = "Iterating";
+          convElem.className = "font-mono text-xs font-semibold text-indigo-400 mt-1";
+        }
+
+        // Status Header Badge
+        const phaseBadge = document.getElementById('phaseBadge');
+        const phaseText = document.getElementById('phaseText');
+        if (this.currentPhase === 'E') {
+          phaseBadge.className = "px-3 py-1.5 rounded-full font-medium flex items-center gap-2 border border-indigo-500/30 bg-indigo-500/10 text-indigo-300";
+          phaseText.innerText = "Next: E-Step (Responsibilities)";
+          document.getElementById('btnStepText').innerText = "Step (E-Step)";
+        } else {
+          phaseBadge.className = "px-3 py-1.5 rounded-full font-medium flex items-center gap-2 border border-teal-500/30 bg-teal-500/10 text-teal-300";
+          phaseText.innerText = "Next: M-Step (Maximization)";
+          document.getElementById('btnStepText').innerText = "Step (M-Step)";
+        }
+      }
+
+      updateUIPhaseCard(title, desc, nextPhase) {
+        document.getElementById('stepTitle').innerText = title;
+        document.getElementById('stepDescription').innerHTML = desc;
+      }
+
+      updateClusterPills() {
+        const container = document.getElementById('clusterPillContainer');
+        container.innerHTML = '';
+        this.clusters.forEach((cl, k) => {
+          const col = PALETTE[k % PALETTE.length];
+          const pill = document.createElement('div');
+          pill.className = "flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-[11px]";
+          pill.innerHTML = `
+            <span class="w-2 h-2 rounded-full" style="background-color: ${col.hex}"></span>
+            <span class="text-slate-300 font-medium">K${k+1}</span>
+            <span class="text-slate-500 font-mono">π=${cl.pi.toFixed(2)}</span>
+          `;
+          container.appendChild(pill);
+        });
+      }
+
+      loadPreset(name) {
+        this.generateDataset(name);
+        this.initParameters(document.getElementById('initMethodSelect').value);
+      }
+
+      setupDOMBindings() {
+        // Preset select
+        document.getElementById('presetSelect').addEventListener('change', (e) => {
+          this.loadPreset(e.target.value);
+        });
+
+        // Clear / Reset Data button
+        document.getElementById('btnClearPoints').addEventListener('click', () => {
+          this.loadPreset(document.getElementById('presetSelect').value);
+        });
+
+        // Step button
+        document.getElementById('btnStep').addEventListener('click', () => {
+          this.pause();
+          this.step();
+        });
+
+        // Full Iteration button
+        document.getElementById('btnFullIter').addEventListener('click', () => {
+          this.pause();
+          this.fullIteration();
+        });
+
+        // Play / Pause toggle
+        const playBtn = document.getElementById('btnPlayPause');
+        playBtn.addEventListener('click', () => {
+          if (this.isPlaying) {
+            this.pause();
+          } else {
+            this.play();
+          }
+        });
+
+        // Reset Parameters
+        document.getElementById('btnReset').addEventListener('click', () => {
+          this.pause();
+          this.initParameters(document.getElementById('initMethodSelect').value);
+        });
+
+        // K component selection buttons
+        document.querySelectorAll('.btnK').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const newK = parseInt(e.target.dataset.k);
+            if (newK !== this.K) {
+              this.K = newK;
+              document.querySelectorAll('.btnK').forEach(b => {
+                b.className = "btnK px-2.5 py-1 rounded-lg font-bold border transition text-slate-400 border-slate-700 hover:border-slate-500";
+              });
+              e.target.className = "btnK px-2.5 py-1 rounded-lg font-bold border transition bg-indigo-600 text-white border-indigo-500";
+              this.initParameters(document.getElementById('initMethodSelect').value);
+            }
+          });
+        });
+
+        // Speed slider
+        document.getElementById('speedSlider').addEventListener('input', (e) => {
+          this.speed = parseInt(e.target.value);
+          if (this.isPlaying) {
+            this.pause();
+            this.play();
+          }
+        });
+
+        // Interactive Click to Add Point
+        this.emCanvas.addEventListener('click', (e) => {
+          const rect = this.emCanvas.getBoundingClientRect();
+          const normX = (e.clientX - rect.left) / rect.width;
+          const normY = (e.clientY - rect.top) / rect.height;
+
+          this.data.push([normX, normY]);
+          // append default responsibility vector
+          this.gamma.push(Array(this.K).fill(1 / this.K));
+          this.computeLogLikelihood();
+          this.render();
+        });
+
+        // Hover Inspection for Responsibilities
+        const tooltip = document.getElementById('pointTooltip');
+        this.emCanvas.addEventListener('mousemove', (e) => {
+          const rect = this.emCanvas.getBoundingClientRect();
+          const mouseX = (e.clientX - rect.left) / rect.width;
+          const mouseY = (e.clientY - rect.top) / rect.height;
+
+          let closestIdx = -1;
+          let closestDist = 0.045; // detection radius threshold
+
+          for (let i = 0; i < this.data.length; i++) {
+            const d = Math.hypot(this.data[i][0] - mouseX, this.data[i][1] - mouseY);
+            if (d < closestDist) {
+              closestDist = d;
+              closestIdx = i;
+            }
+          }
+
+          this.hoveredPointIdx = closestIdx;
+
+          if (closestIdx !== -1 && this.gamma[closestIdx]) {
+            const pt = this.data[closestIdx];
+            document.getElementById('tooltipPtIdx').innerText = `#${closestIdx}`;
+            document.getElementById('tooltipPtCoords').innerText = `(${pt[0].toFixed(2)}, ${pt[1].toFixed(2)})`;
+
+            const barsContainer = document.getElementById('tooltipResponsibilityBars');
+            barsContainer.innerHTML = '';
+
+            for (let k = 0; k < this.K; k++) {
+              const resp = this.gamma[closestIdx][k] || 0;
+              const col = PALETTE[k % PALETTE.length];
+              const row = document.createElement('div');
+              row.className = "flex items-center justify-between text-[11px]";
+              row.innerHTML = `
+                <span class="flex items-center gap-1 font-medium" style="color: ${col.hex}">
+                  <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${col.hex}"></span>
+                  K${k+1}
+                </span>
+                <span class="font-mono text-slate-300">${(resp * 100).toFixed(1)}%</span>
+              `;
+              const bar = document.createElement('div');
+              bar.className = "w-full bg-slate-800 rounded-full h-1.5 mt-0.5 overflow-hidden";
+              bar.innerHTML = `<div class="h-full rounded-full" style="width: ${resp * 100}%; background-color: ${col.hex}"></div>`;
+              
+              const wrap = document.createElement('div');
+              wrap.appendChild(row);
+              wrap.appendChild(bar);
+              barsContainer.appendChild(wrap);
+            }
+
+            tooltip.style.left = `${e.clientX - rect.left}px`;
+            tooltip.style.top = `${e.clientY - rect.top}px`;
+            tooltip.classList.remove('hidden');
+          } else {
+            tooltip.classList.add('hidden');
+          }
+          this.renderMainPlot();
+        });
+
+        this.emCanvas.addEventListener('mouseleave', () => {
+          this.hoveredPointIdx = -1;
+          tooltip.classList.add('hidden');
+          this.renderMainPlot();
+        });
+
+        // Theory Tab switcher
+        document.querySelectorAll('.theory-tab-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.theory-tab-btn').forEach(b => {
+              b.className = "theory-tab-btn px-2.5 py-1.5 rounded-t-lg border-b-2 border-transparent text-slate-400 hover:text-slate-200";
+            });
+            e.target.className = "theory-tab-btn px-2.5 py-1.5 rounded-t-lg border-b-2 border-indigo-500 text-indigo-300 bg-slate-800/50";
+
+            const targetId = e.target.dataset.target;
+            document.querySelectorAll('.theory-tab-content').forEach(content => {
+              content.classList.add('hidden');
+            });
+            document.getElementById(targetId).classList.remove('hidden');
+          });
+        });
+      }
+
+      play() {
+        this.isPlaying = true;
+        document.getElementById('playBtnLabel').innerText = "Pause";
+        document.getElementById('playIcon').innerHTML = `<path d="M5 4h3v12H5V4zm7 0h3v12h-3V4z"/>`;
+        this.timer = setInterval(() => {
+          this.step();
+        }, this.speed);
+      }
+
+      pause() {
+        this.isPlaying = false;
+        document.getElementById('playBtnLabel').innerText = "Auto Run";
+        document.getElementById('playIcon').innerHTML = `<path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>`;
+        if (this.timer) {
+          clearInterval(this.timer);
+          this.timer = null;
+        }
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      window.app = new GMMVisualizer();
+    });
+  </script>
+</body>
+</html>
